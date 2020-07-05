@@ -10,10 +10,10 @@ import lic
 
 # XFDoG - eXtended Flow-based Difference-of-Gaussians
 # 7 steps:
-# 1 [ ] - input image to grayscale
-# 2 [ ] - calculate structure tensor
-# 3 [ ] - smooth (blur) structure tensor with Gaussian filter (sigma_c)
-# 4 [ ] - calculate flow field
+# 1 [X] - input image to grayscale
+# 2 [X] - calculate structure tensor
+# 3 [X] - smooth (blur) structure tensor with Gaussian filter (sigma_c)
+# 4 [X] - calculate flow field
 # 5 [ ] - gradient aligned Difference-of-Gaussians (sigma_e, p)
 # 6 [ ] - thresholding (epsilon, fi)
 # 7 [ ] - line integral convolution (sigma_m)
@@ -47,9 +47,9 @@ def calc_structure_tensor(im):
     return t
 
 
-def smooth_structure_tensor(t):
+def smooth_structure_tensor(t, sigma):
     s_t = copy.deepcopy(t)
-    return gaussian(s_t, 2)
+    return gaussian(s_t, sigma=sigma)
 
 
 def calc_flow_field(s_t):
