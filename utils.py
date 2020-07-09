@@ -1,13 +1,10 @@
-import skimage.data as d
-from skimage.color import rgb2gray
-import numpy as np
-import math
-from skimage.draw import line
-from skimage.io import imsave
 import copy
-from skimage.filters import gaussian
+import math
+
 import lic
+import numpy as np
 from scipy.stats import norm
+from skimage.filters import gaussian, difference_of_gaussians
 
 
 def get_from_matrix(matrix, i, j, default_value):
@@ -85,22 +82,6 @@ def calc_flow_field(s_t):
     return f
 
 
-def visualize_flow_field(im, f_f, res):
-    im1 = copy.deepcopy(im)
-    for i in range(0, im1.shape[0], res):
-        for j in range(0, im1.shape[1], res):
-            v = f_f[i][j]
-            p2 = (int(i + v[0] * 5), int(j + v[1] * 5))
-            if p2[0] >= im1.shape[0] or p2[0] < 0:
-                continue
-            if p2[1] >= im1.shape[1] or p2[1] < 0:
-                continue
-            rr, cc = line(i, j, p2[0], p2[1])
-            im1[rr, cc] = 0.5
-            # im1[rr, cc] = v[2]
-    imsave('./out/flow_field.png', im1)
-
-
 def prepare_1d_gaussian_kernel(sigma, kernel_size):
     s = math.floor(kernel_size / 2)
     x_all = np.arange(-s, s + 1, 1)
@@ -143,19 +124,53 @@ def gradient_aligned_1d_gaussian(im, f_f, sigma, kernel_size):
     return im1
 
 
-image = rgb2gray(d.astronaut())
+def get_flow_field(image, smooth):
+    tensor = calc_structure_tensor(image)
+    smoothed_tensor = smooth_structure_tensor(tensor, smooth)
+    return calc_flow_field(smoothed_tensor)
 
-tensor = calc_structure_tensor(image)
-smoothed_tensor = smooth_structure_tensor(tensor, 0.1)
-flow_field = calc_flow_field(smoothed_tensor)
-dog1 = gradient_aligned_1d_gaussian(image, flow_field, 1, 7)
-dog2 = gradient_aligned_1d_gaussian(image, flow_field, 1.6, 7)
-dog_1d = dog1 - dog2
-dog_1d = lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=dog_1d, length=20)
-for i in range(0, dog_1d.shape[0]):
-    for j in range(0, dog_1d.shape[1]):
-        if dog_1d[i][j] >= 0.4:
-            dog_1d[i][j] = 1
-        else:
-            dog_1d[i][j] = 0
-imsave('./out/fdog.png', dog_1d)
+
+def apply_simple_thresholding(image, epsilon):
+    for i in range(0, image.shape[0]):
+        for j in range(0, image.shape[1]):
+            if image[i][j] >= epsilon:
+                image[i][j] = 1
+            else:
+                image[i][j] = 0
+
+
+def apply_thresholding(image, epsilon, fi):
+    for i in range(0, image.shape[0]):
+        for j in range(0, image.shape[1]):
+            if image[i][j] >= epsilon:
+                image[i][j] = 1
+            else:
+                image[i][j] = 1 + math.tanh(fi * (image[i][j] - epsilon))
+    return image
+
+
+def gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, w1 = 1, w2 = 1):
+    gag1 = gradient_aligned_1d_gaussian(image, flow_field, low_sigma, kernel_size)
+    gag2 = gradient_aligned_1d_gaussian(image, flow_field, high_sigma, kernel_size)
+    return w1 * gag1 - w2 * gag2
+
+
+def dog(image, low_sigma, high_sigma):
+    return difference_of_gaussians(image, low_sigma, high_sigma)
+
+
+def fdog(image, low_sigma, high_sigma, blur_sigma, kernel_size):
+    flow_field = get_flow_field(image, blur_sigma)
+    gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size)
+    return lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=gadog, length=20)
+
+
+def xdog(image, low_sigma, high_sigma, epsilon, fi, p):
+    image = (1 + p) * gaussian(image, low_sigma) - p * gaussian(image, high_sigma)
+    return apply_thresholding(image, epsilon, fi)
+
+
+def xfdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p):
+    flow_field = get_flow_field(image, blur_sigma)
+    gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
+    return apply_thresholding(gadog, epsilon, fi)
