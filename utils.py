@@ -5,6 +5,7 @@ import lic
 import numpy as np
 from scipy.stats import norm
 from skimage.filters import gaussian, difference_of_gaussians
+from skimage.util import invert
 
 
 def get_from_matrix(matrix, i, j, default_value):
@@ -137,6 +138,7 @@ def apply_simple_thresholding(image, epsilon):
                 image[i][j] = 1
             else:
                 image[i][j] = 0
+    return image
 
 
 def apply_thresholding(image, epsilon, fi):
@@ -149,20 +151,22 @@ def apply_thresholding(image, epsilon, fi):
     return image
 
 
-def gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, w1 = 1, w2 = 1):
+def gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, w1=1, w2=1):
     gag1 = gradient_aligned_1d_gaussian(image, flow_field, low_sigma, kernel_size)
     gag2 = gradient_aligned_1d_gaussian(image, flow_field, high_sigma, kernel_size)
     return w1 * gag1 - w2 * gag2
 
 
-def dog(image, low_sigma, high_sigma):
-    return difference_of_gaussians(image, low_sigma, high_sigma)
+def dog(image, low_sigma, high_sigma, epsilon):
+    im = gaussian(image, low_sigma) - gaussian(image, high_sigma)
+    return invert(apply_simple_thresholding(im, epsilon))
 
 
-def fdog(image, low_sigma, high_sigma, blur_sigma, kernel_size):
+def fdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon):
     flow_field = get_flow_field(image, blur_sigma)
     gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size)
-    return lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=gadog, length=20)
+    im = lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=gadog, length=20)
+    return apply_simple_thresholding(im, epsilon)
 
 
 def xdog(image, low_sigma, high_sigma, epsilon, fi, p):
