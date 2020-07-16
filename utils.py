@@ -4,7 +4,8 @@ import math
 import lic
 import numpy as np
 from scipy.stats import norm
-from skimage.filters import gaussian, difference_of_gaussians
+from skimage.filters import gaussian
+from skimage.io import imsave
 from skimage.util import invert
 
 
@@ -154,7 +155,8 @@ def apply_thresholding(image, epsilon, fi):
 def gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, w1=1, w2=1):
     gag1 = gradient_aligned_1d_gaussian(image, flow_field, low_sigma, kernel_size)
     gag2 = gradient_aligned_1d_gaussian(image, flow_field, high_sigma, kernel_size)
-    return w1 * gag1 - w2 * gag2
+    gadog = w1 * gag1 - w2 * gag2
+    return gadog
 
 
 def dog(image, low_sigma, high_sigma, epsilon):
@@ -162,19 +164,19 @@ def dog(image, low_sigma, high_sigma, epsilon):
     return invert(apply_simple_thresholding(im, epsilon))
 
 
-def fdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon):
+def fdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, length):
     flow_field = get_flow_field(image, blur_sigma)
     gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size)
-    im = lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=gadog, length=20)
-    return apply_simple_thresholding(im, epsilon)
-
+    im = apply_simple_thresholding(gadog, epsilon)
+    return lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=im, length=length)
 
 def xdog(image, low_sigma, high_sigma, epsilon, fi, p):
     image = (1 + p) * gaussian(image, low_sigma) - p * gaussian(image, high_sigma)
     return apply_thresholding(image, epsilon, fi)
 
 
-def xfdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p):
+def xfdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, length):
     flow_field = get_flow_field(image, blur_sigma)
     gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
-    return apply_thresholding(gadog, epsilon, fi)
+    im = apply_thresholding(gadog, epsilon, fi)
+    return lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=im, length=length)
