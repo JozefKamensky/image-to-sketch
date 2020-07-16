@@ -4,8 +4,9 @@ import math
 import lic
 import numpy as np
 from scipy.stats import norm
+from skimage.color import rgb2gray
 from skimage.filters import gaussian
-from skimage.io import imsave
+from skimage.io import imsave, imread
 from skimage.util import invert
 
 
@@ -152,6 +153,10 @@ def apply_thresholding(image, epsilon, fi):
     return image
 
 
+def load_image(path):
+    return rgb2gray(imread(path))
+
+
 def gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, w1=1, w2=1):
     gag1 = gradient_aligned_1d_gaussian(image, flow_field, low_sigma, kernel_size)
     gag2 = gradient_aligned_1d_gaussian(image, flow_field, high_sigma, kernel_size)
@@ -159,23 +164,27 @@ def gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 
     return gadog
 
 
-def dog(image, low_sigma, high_sigma, epsilon):
+def dog(path, low_sigma, high_sigma, epsilon):
+    image = load_image(path)
     im = gaussian(image, low_sigma) - gaussian(image, high_sigma)
     return invert(apply_simple_thresholding(im, epsilon))
 
 
-def fdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, length):
+def fdog(path, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, length):
+    image = load_image(path)
     flow_field = get_flow_field(image, blur_sigma)
     gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size)
     im = apply_simple_thresholding(gadog, epsilon)
     return lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=im, length=length)
 
-def xdog(image, low_sigma, high_sigma, epsilon, fi, p):
+def xdog(path, low_sigma, high_sigma, epsilon, fi, p):
+    image = load_image(path)
     image = (1 + p) * gaussian(image, low_sigma) - p * gaussian(image, high_sigma)
     return apply_thresholding(image, epsilon, fi)
 
 
-def xfdog(image, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, length):
+def xfdog(path, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, length):
+    image = load_image(path)
     flow_field = get_flow_field(image, blur_sigma)
     gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
     im = apply_thresholding(gadog, epsilon, fi)
