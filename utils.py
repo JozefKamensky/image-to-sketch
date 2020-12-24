@@ -189,3 +189,15 @@ def xfdog(path, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, 
     gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
     im = apply_thresholding(gadog, epsilon, fi)
     return lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=im, length=length)
+
+
+def xfdog_debug(path_in, path_out, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, length):
+    image = load_image(path_in)
+    flow_field = get_flow_field(image, blur_sigma)
+    imsave(path_out + '0_flow_field.png', flow_field)
+    gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
+    imsave(path_out + '1_gadog.png', gadog)
+    im = apply_thresholding(gadog, epsilon, fi)
+    imsave(path_out + '2_thresholding.png', im)
+    res = lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=im, length=length)
+    imsave(path_out + '3_result.png', res)
