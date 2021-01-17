@@ -8,6 +8,7 @@ from skimage.color import rgb2gray
 from skimage.filters import gaussian
 from skimage.io import imsave, imread
 from skimage.util import invert
+from skimage.draw import line
 
 
 def get_from_matrix(matrix, i, j, default_value):
@@ -133,6 +134,22 @@ def get_flow_field(image, smooth):
     return calc_flow_field(smoothed_tensor)
 
 
+def visualize_flow_field(im, f_f):
+    im1 = copy.deepcopy(im)
+    resolution = 5
+    for i in range(0, im1.shape[0], resolution):
+        for j in range(0, im1.shape[1], resolution):
+            v = f_f[i][j]
+            p2 = (int(i + v[0] * 10), int(j + v[1] * 10))
+            if p2[0] >= im.shape[0] or p2[0] < 0:
+                continue
+            if p2[1] >= im.shape[1] or p2[1] < 0:
+                continue
+            rr, cc = line(i, j, p2[0], p2[1])
+            im1[rr, cc] = v[2]
+    return im1
+
+
 def apply_simple_thresholding(image, epsilon):
     for i in range(0, image.shape[0]):
         for j in range(0, image.shape[1]):
@@ -194,7 +211,8 @@ def xfdog(path, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, 
 def xfdog_debug(path_in, path_out, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, length):
     image = load_image(path_in)
     flow_field = get_flow_field(image, blur_sigma)
-    imsave(path_out + '0_flow_field.png', flow_field)
+    ff_vis = visualize_flow_field(image, flow_field)
+    imsave(path_out + '0_flow_field.png', ff_vis)
     lic_vis = lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], length=length)
     imsave(path_out + '1_lic.png', lic_vis)
     gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
