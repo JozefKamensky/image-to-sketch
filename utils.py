@@ -33,6 +33,24 @@ sobel_7_h = [
     [ 3/18,  3/13,  3/10,  3/9,  3/10,  3/13,  3/18]
 ]
 
+gaussian_5 = [
+    [1/273,  4/273,  7/273,  4/273,  1/273],
+    [4/273, 16/273, 26/273, 16/273,  4/273],
+    [7/273, 26/273, 41/273, 26/273,  7/273],
+    [4/273, 16/273, 26/273, 16/273,  4/273],
+    [1/273,  4/273,  7/273,  4/273,  1/273]
+]
+
+gaussian_7 = [
+    [     0,       0,  1/1003,   2/1003,  1/1003,       0,       0],
+    [     0,  3/1003, 13/1003,  22/1003, 13/1003,  3/1003,       0],
+    [1/1003, 13/1003, 59/1003,  97/1003, 59/1003, 13/1003,  1/1003],
+    [2/1003, 22/1003, 97/1003, 159/1003, 97/1003, 22/1003,  2/1003],
+    [1/1003, 13/1003, 59/1003,  97/1003, 59/1003, 13/1003,  1/1003],
+    [     0,  3/1003, 13/1003,  22/1003, 13/1003,  3/1003,       0],
+    [     0,       0,  1/1003,   2/1003,  1/1003,       0,       0]
+]
+
 def wrap_to_range(val, min, max):
     if val < min:
         val = val + max
@@ -52,6 +70,22 @@ def convolve_point(image, kernel, i, j):
             v = wrap_to_range(j - r + y, 0, w)
             sum = sum + image[u][v] * kernel[x][y]
     return sum
+
+
+def convolve_vector(image, kernel, i, j):
+    h, w, ch = image.shape
+    d = len(kernel)
+    r = math.ceil(d/2)
+    vector = ()
+    for channel in range(0, ch):
+        sum = 0
+        for x in range(0, d):
+            for y in range(0, d):
+                u = wrap_to_range(i - r + x, 0, h)
+                v = wrap_to_range(j - r + y, 0, w)
+                sum = sum + image[u][v][channel] * kernel[x][y]
+        vector = vector + (sum,)
+    return vector
 
 
 def get_from_matrix(matrix, i, j, default_value):
@@ -102,9 +136,12 @@ def calc_structure_tensor(im):
     return t
 
 
-def smooth_structure_tensor(t, sigma):
+def smooth_structure_tensor(t):
     s_t = copy.deepcopy(t)
-    return gaussian(s_t, sigma=sigma)
+    for i in range(0, t.shape[0]):
+        for j in range(0, t.shape[1]):
+            s_t[i][j] = convolve_vector(t, gaussian_5, i, j)
+    return s_t
 
 
 def calc_flow_field(s_t):
@@ -118,7 +155,7 @@ def calc_flow_field(s_t):
             lambda2 = 0.5 * (E + G - math.sqrt(D))
             d = (lambda2 - G, F)
             length = math.sqrt(d[0]*d[0] + d[1]*d[1])
-            t = (d[0], d[1], math.sqrt(length)) if length > 0 else (0, 1, 0)
+            t = (d[0], d[1], math.sqrt(length)) if length > 0 else (0, 0.1, 0)
             f[i][j] = np.array(t)
     return f
 
@@ -168,7 +205,7 @@ def gradient_aligned_1d_gaussian(im, f_f, sigma, kernel_size):
 def get_flow_field(image, smooth):
     tensor = calc_structure_tensor(image)
     flow_field = calc_flow_field(tensor)
-    return smooth_structure_tensor(flow_field, smooth)
+    return smooth_structure_tensor(flow_field)
 
 
 def visualize_flow_field(im, f_f):
@@ -247,14 +284,16 @@ def xfdog(path, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, 
 
 def xfdog_debug(path_in, path_out, low_sigma, high_sigma, blur_sigma, kernel_size, epsilon, fi, p, length):
     image = load_image(path_in)
-    flow_field = get_flow_field(image, blur_sigma)
-    ff_vis = visualize_flow_field(image, flow_field)
-    imsave(path_out + '0_flow_field.png', ff_vis)
-    lic_vis = lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], length=length)
-    imsave(path_out + '1_lic.png', lic_vis)
-    gadog = gradient_aligned_dog(image, flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
-    imsave(path_out + '2_gadog.png', gadog)
+    tensor = calc_structure_tensor(image)
+    flow_field = calc_flow_field(tensor)
+    imsave(path_out + '0_flow_field.png', visualize_flow_field(image, flow_field))
+    smoothed_flow_field = smooth_structure_tensor(flow_field)
+    imsave(path_out + '1_smoothed_flow_field.png', visualize_flow_field(image, smoothed_flow_field))
+    lic_vis = lic.lic(flow_field[:, :, 0], smoothed_flow_field[:, :, 1], length=length)
+    imsave(path_out + '2_lic.png', lic_vis)
+    gadog = gradient_aligned_dog(image, smoothed_flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
+    imsave(path_out + '3_gadog.png', gadog)
     im = apply_thresholding(gadog, epsilon, fi)
-    imsave(path_out + '3_thresholding.png', im)
-    res = lic.lic(flow_field[:, :, 0], flow_field[:, :, 1], seed=im, length=length)
-    imsave(path_out + '4_result.png', res)
+    imsave(path_out + '4_thresholding.png', im)
+    res = lic.lic(smoothed_flow_field[:, :, 0], smoothed_flow_field[:, :, 1], seed=im, length=length)
+    imsave(path_out + '5_result.png', res)
