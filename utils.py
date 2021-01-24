@@ -5,10 +5,53 @@ import lic
 import numpy as np
 from scipy.stats import norm
 from skimage.color import rgb2gray
-from skimage.filters import gaussian
+from skimage.filters import gaussian, sobel
 from skimage.io import imsave, imread
 from skimage.util import invert
 from skimage.draw import line
+
+sobel_3_v = [[1, 0, -1],[2, 0, -2],[1, 0, -1]]
+sobel_3_h = [[1, 2, 1],[0, 0, 0],[-1, -2, -1]]
+
+sobel_7_v = [
+    [-3/18, -2/13, -1/10,  0,  1/10, 2/13, 3/18],
+    [-3/13,  -2/8,  -1/5,  0,   1/5,  2/8, 3/13],
+    [-3/10,  -2/5,  -1/2,  0,   1/2,  2/5, 3/10],
+    [ -3/9,  -2/4,  -1/1,  0,   1/1,  2/4,  3/9],
+    [-3/10,  -2/5,  -1/2,  0,   1/2,  2/5, 3/10],
+    [-3/13,  -2/8,  -1/5,  0,   1/5,  2/8, 3/13],
+    [-3/18, -2/13, -1/10,  0,  1/10, 2/13, 3/18]
+]
+
+sobel_7_h = [
+    [-3/18, -3/13, -3/10, -3/9, -3/10, -3/13, -3/18],
+    [-2/13,  -2/8,  -2/5, -2/4,  -2/5,  -2/8, -2/13],
+    [-1/10,  -1/5,  -1/2,   -1,  -1/2,  -1/5, -1/10],
+    [    0,     0,     0,    0,     0,     0,     0],
+    [ 1/10,   1/5,   1/2,    1,   1/2,   1/5,  1/10],
+    [ 2/13,   2/8,   2/5,  2/4,   2/5,   2/8,  2/13],
+    [ 3/18,  3/13,  3/10,  3/9,  3/10,  3/13,  3/18]
+]
+
+def wrap_to_range(val, min, max):
+    if val < min:
+        val = val + max
+    if val >= max:
+        val = val - max
+    return val
+
+
+def convolve_point(image, kernel, i, j):
+    h, w = image.shape
+    d = len(kernel)
+    r = math.ceil(d/2)
+    sum = 0
+    for x in range(0, d):
+        for y in range(0, d):
+            u = wrap_to_range(i - r + x, 0, h)
+            v = wrap_to_range(j - r + y, 0, w)
+            sum = sum + image[u][v] * kernel[x][y]
+    return sum
 
 
 def get_from_matrix(matrix, i, j, default_value):
@@ -45,23 +88,17 @@ def get_from_matrix_interpolate(matrix, i, j):
     return p1 + p2 + p3 + p4
 
 
+# https://www.kyprianidis.com/p/tpcg2008/jkyprian-tpcg2008.pdf
 def calc_structure_tensor(im):
     t = np.ndarray((im.shape[0], im.shape[1], 3))
     for i in range(0, im.shape[0]):
         for j in range(0, im.shape[1]):
-            u = - get_from_matrix(im, i - 1, j - 1, np.zeros(3)) \
-                - get_from_matrix(im, i - 1, j, np.zeros(3)) * 2 \
-                - get_from_matrix(im, i - 1, j + 1, np.zeros(3)) \
-                + get_from_matrix(im, i + 1, j - 1, np.zeros(3)) \
-                + get_from_matrix(im, i + 1, j, np.zeros(3)) * 2 \
-                + get_from_matrix(im, i + 1, j + 1, np.zeros(3))
-            v = - get_from_matrix(im, i - 1, j - 1, np.zeros(3)) \
-                - get_from_matrix(im, i, j - 1, np.zeros(3)) * 2 \
-                - get_from_matrix(im, i + 1, j - 1, np.zeros(3)) \
-                + get_from_matrix(im, i - 1, j + 1, np.zeros(3)) \
-                + get_from_matrix(im, i, j + 1, np.zeros(3)) * 2 \
-                + get_from_matrix(im, i + 1, j + 1, np.zeros(3))
-            t[i][j] = np.array((np.dot(u, u), np.dot(v, v), np.dot(u, v)))
+            u = convolve_point(im, sobel_7_h, i, j)
+            v = convolve_point(im, sobel_7_v, i, j)
+            E = np.dot(u, u)
+            F = np.dot(u, v)
+            G = np.dot(v, v)
+            t[i][j] = np.array((E, F, G))
     return t
 
 
@@ -74,14 +111,14 @@ def calc_flow_field(s_t):
     f = np.ndarray((s_t.shape[0], s_t.shape[1], 3))
     for i in range(0, s_t.shape[0]):
         for j in range(0, s_t.shape[1]):
-            x = s_t[i][j][0]
-            y = s_t[i][j][1]
-            z = s_t[i][j][2]
-            lambda1 = 0.5 * (y + x + math.sqrt(y*y - 2*x*y + x*x + 4*z*z))
-            d = np.array((x - lambda1, z))
-            d_n = d/np.linalg.norm(d)
-            len_d = math.sqrt(d[0]*d[0] + d[1]*d[1])
-            t = (d_n[0], d_n[1], math.sqrt(lambda1)) if len_d > 0 else (0, 1, 0)
+            E = s_t[i][j][0]
+            F = s_t[i][j][1]
+            G = s_t[i][j][2]
+            D = E*E - 2*E*G + G*G + 4*F*F
+            lambda2 = 0.5 * (E + G - math.sqrt(D))
+            d = (lambda2 - G, F)
+            length = math.sqrt(d[0]*d[0] + d[1]*d[1])
+            t = (d[0], d[1], math.sqrt(length)) if length > 0 else (0, 1, 0)
             f[i][j] = np.array(t)
     return f
 
@@ -130,8 +167,8 @@ def gradient_aligned_1d_gaussian(im, f_f, sigma, kernel_size):
 
 def get_flow_field(image, smooth):
     tensor = calc_structure_tensor(image)
-    smoothed_tensor = smooth_structure_tensor(tensor, smooth)
-    return calc_flow_field(smoothed_tensor)
+    flow_field = calc_flow_field(tensor)
+    return smooth_structure_tensor(flow_field, smooth)
 
 
 def visualize_flow_field(im, f_f):
@@ -140,13 +177,13 @@ def visualize_flow_field(im, f_f):
     for i in range(0, im1.shape[0], resolution):
         for j in range(0, im1.shape[1], resolution):
             v = f_f[i][j]
-            p2 = (int(i + v[0] * 10), int(j + v[1] * 10))
+            p2 = (int(i + v[0] * 5), int(j + v[1] * 5))
             if p2[0] >= im.shape[0] or p2[0] < 0:
                 continue
             if p2[1] >= im.shape[1] or p2[1] < 0:
                 continue
             rr, cc = line(i, j, p2[0], p2[1])
-            im1[rr, cc] = v[2]
+            im1[rr, cc] = 255
     return im1
 
 
