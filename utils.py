@@ -4,6 +4,7 @@ import math
 import lic
 import numpy as np
 from scipy.stats import norm
+from scipy import signal
 from skimage.color import rgb2gray
 from skimage.filters import gaussian, sobel
 from skimage.io import imsave, imread
@@ -33,24 +34,6 @@ sobel_7_h = [
     [ 3/18,  3/13,  3/10,  3/9,  3/10,  3/13,  3/18]
 ]
 
-gaussian_5 = [
-    [1/273,  4/273,  7/273,  4/273,  1/273],
-    [4/273, 16/273, 26/273, 16/273,  4/273],
-    [7/273, 26/273, 41/273, 26/273,  7/273],
-    [4/273, 16/273, 26/273, 16/273,  4/273],
-    [1/273,  4/273,  7/273,  4/273,  1/273]
-]
-
-gaussian_7 = [
-    [     0,       0,  1/1003,   2/1003,  1/1003,       0,       0],
-    [     0,  3/1003, 13/1003,  22/1003, 13/1003,  3/1003,       0],
-    [1/1003, 13/1003, 59/1003,  97/1003, 59/1003, 13/1003,  1/1003],
-    [2/1003, 22/1003, 97/1003, 159/1003, 97/1003, 22/1003,  2/1003],
-    [1/1003, 13/1003, 59/1003,  97/1003, 59/1003, 13/1003,  1/1003],
-    [     0,  3/1003, 13/1003,  22/1003, 13/1003,  3/1003,       0],
-    [     0,       0,  1/1003,   2/1003,  1/1003,       0,       0]
-]
-
 def wrap_to_range(val, min, max):
     if val < min:
         val = val + max
@@ -72,10 +55,17 @@ def convolve_point(image, kernel, i, j):
     return sum
 
 
+def gkern(kernlen, std):
+    """Returns a 2D Gaussian kernel array."""
+    gkern1d = signal.gaussian(kernlen, std=std).reshape(kernlen, 1)
+    gkern2d = np.outer(gkern1d, gkern1d)
+    return gkern2d
+
+
 def convolve_vector(image, kernel, i, j):
     h, w, ch = image.shape
     d = len(kernel)
-    r = math.ceil(d/2)
+    r = math.floor(d/2)
     vector = ()
     for channel in range(0, ch):
         sum = 0
@@ -136,11 +126,18 @@ def calc_structure_tensor(im):
     return t
 
 
-def smooth_structure_tensor(t):
+def smooth_structure_tensor(t, sigma):
     s_t = copy.deepcopy(t)
+    kernel = gkern(5, sigma)
     for i in range(0, t.shape[0]):
         for j in range(0, t.shape[1]):
-            s_t[i][j] = convolve_vector(t, gaussian_5, i, j)
+            s_t[i][j] = convolve_vector(t, kernel, i, j)
+    return s_t
+
+def smooth_structure_tensor_iteratively(t, sigma, n_of_iterations):
+    s_t = copy.deepcopy(t)
+    for i in range(0, n_of_iterations):
+        s_t = smooth_structure_tensor(s_t, sigma)
     return s_t
 
 
@@ -205,7 +202,7 @@ def gradient_aligned_1d_gaussian(im, f_f, sigma, kernel_size):
 def get_flow_field(image, smooth):
     tensor = calc_structure_tensor(image)
     flow_field = calc_flow_field(tensor)
-    return smooth_structure_tensor(flow_field)
+    return smooth_structure_tensor(flow_field, smooth)
 
 
 def visualize_flow_field(im, f_f):
@@ -287,9 +284,11 @@ def xfdog_debug(path_in, path_out, low_sigma, high_sigma, blur_sigma, kernel_siz
     tensor = calc_structure_tensor(image)
     flow_field = calc_flow_field(tensor)
     imsave(path_out + '0_flow_field.png', visualize_flow_field(image, flow_field))
-    smoothed_flow_field = smooth_structure_tensor(flow_field)
-    imsave(path_out + '1_smoothed_flow_field.png', visualize_flow_field(image, smoothed_flow_field))
-    lic_vis = lic.lic(flow_field[:, :, 0], smoothed_flow_field[:, :, 1], length=length)
+    smoothed_flow_field = copy.deepcopy(flow_field)
+    for i in range(1, 2):
+        smoothed_flow_field = smooth_structure_tensor(smoothed_flow_field, blur_sigma)
+        imsave(path_out + '1_smoothed_flow_field_' + str(i) + '.png', visualize_flow_field(image, smoothed_flow_field))
+    lic_vis = lic.lic(smoothed_flow_field[:, :, 0], smoothed_flow_field[:, :, 1], length=length)
     imsave(path_out + '2_lic.png', lic_vis)
     gadog = gradient_aligned_dog(image, smoothed_flow_field, low_sigma, high_sigma, kernel_size, 1 + p, p)
     imsave(path_out + '3_gadog.png', gadog)
